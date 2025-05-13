@@ -13,6 +13,18 @@
 
         public string Name { get; private set; } = String.Empty;
 
+        //assegura contra mudanças acidentais em Nome que esta privado para setar
+        public void MudarNome(string name)
+        {
+            Name = name;
+        }
+
+        //Flag - para desativar ao invés de deletar o usuario completamente (soft delete)
+        public void SetInativo()
+        {
+            Name = "desativado";
+        }
+
     }
     
 }

@@ -1,6 +1,8 @@
 ﻿using LoginPage.Dados;
 using LoginPage.Modelo;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Reflection.Metadata.Ecma335;
 
 namespace LoginPage.Rotas
 {
@@ -27,15 +29,34 @@ namespace LoginPage.Rotas
                 return Results.Ok(usuarios);
             });
 
-            /*
-            app.MapGet("/dbcheck", async (LoginPageDbContext db) =>
-            {
-                var canConnect = await db.Database.CanConnectAsync();
-                return canConnect
-                    ? Results.Ok("Conexão com o banco de dados estabelecida com sucesso!")
-                    : Results.Problem("Falha ao conectar ao banco de dados.");
-            });
-            */
+            route.MapPut(pattern: "{id:guid}",
+                async (Guid id, UsuarioRequest req, LoginPageDbContext context) =>
+                {
+                    var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
+
+                    if (usuarioEncontrado == null)
+                        return Results.NotFound();
+
+                    usuarioEncontrado.MudarNome(req.name);
+                    await context.SaveChangesAsync();
+
+                    return Results.Ok(usuarioEncontrado);
+                });
+
+            //soft delete
+            route.MapDelete(pattern: "{id:guid}",
+                async (Guid id, LoginPageDbContext context) =>
+                {
+                    var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
+                    
+                    if (usuarioEncontrado == null)
+                        return Results.NotFound();
+
+                     usuarioEncontrado.SetInativo();
+                     await context.SaveChangesAsync();
+
+                     return Results.Ok(usuarioEncontrado);
+                });
         }
     }
 }
