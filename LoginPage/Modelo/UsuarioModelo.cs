@@ -7,6 +7,7 @@
             Name = name;
             Id = Guid.NewGuid(); // *
         }
+        public bool Status { get; set; } = true;
 
         //Guid gera ids únicos com uma gama maior de caracteres dificultando o risco de ter ids iguias
         public Guid Id { get; init; } //*id é inicializado no construtor
@@ -20,9 +21,10 @@
         }
 
         //Flag - para desativar ao invés de deletar o usuario completamente (soft delete)
+        
         public void SetInativo()
         {
-            Name = "desativado";
+            Status = false;
         }
 
     }

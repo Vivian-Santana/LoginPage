@@ -52,6 +52,7 @@ namespace LoginPage.Rotas
                     if (usuarioEncontrado == null)
                         return Results.NotFound();
 
+                    //seta como inativo
                      usuarioEncontrado.SetInativo();
                      await context.SaveChangesAsync();
 
