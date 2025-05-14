@@ -19,6 +19,7 @@ namespace LoginPage.Rotas
                 await context.AddAsync(usuario); // adiciona o usuário ao contexto (prepara para inserção no banco)
                 await context.SaveChangesAsync(); // salva (commita) as alterações no banco de dados
 
+                return Results.Created($"/usuarios/{usuario.Id}", usuario);
             });
 
             //pega lista de usuários
@@ -29,7 +30,17 @@ namespace LoginPage.Rotas
                 return Results.Ok(usuarios);
             });
 
-            route.MapPut(pattern: "{id:guid}",
+            //pega usuario pelo id
+            route.MapGet("/{id:guid}/pegarPorId", async (Guid id, LoginPageDbContext context) =>
+            {
+                var usuario = await context.Usuarios.FindAsync(id);
+
+                return usuario is not null
+                    ? Results.Ok(usuario)
+                    : Results.NotFound();
+            });
+            
+            route.MapPut(pattern: "{id:guid}/alterar",
                 async (Guid id, UsuarioRequest req, LoginPageDbContext context) =>
                 {
                     var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
@@ -40,11 +51,11 @@ namespace LoginPage.Rotas
                     usuarioEncontrado.MudarNome(req.name);
                     await context.SaveChangesAsync();
 
-                    return Results.Ok(usuarioEncontrado);
+                    return Results.Ok($"Usuário com ID {id} foi alterado com sucesso!");
                 });
 
-            //soft delete
-            route.MapDelete(pattern: "{id:guid}",
+            // soft delete marca como inativo na coluna status
+            route.MapDelete(pattern: "{id:guid}/desativar",
                 async (Guid id, LoginPageDbContext context) =>
                 {
                     var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
@@ -56,7 +67,22 @@ namespace LoginPage.Rotas
                      usuarioEncontrado.SetInativo();
                      await context.SaveChangesAsync();
 
-                     return Results.Ok(usuarioEncontrado);
+                     return Results.Ok($"Usuário com ID {id} foi desativado.");
+                });
+
+            // Hard delete - remoção permanente
+            route.MapDelete(pattern:"/usuarios/{id:guid}/deletar",
+                async (Guid id, LoginPageDbContext context) =>
+                {
+                    var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
+
+                    if (usuarioEncontrado == null)
+                        return Results.NotFound();
+
+                    context.Usuarios.Remove(usuarioEncontrado);
+                    await context.SaveChangesAsync();
+
+                    return Results.Ok($"Usuário com ID {id} foi removido permanentemente.");
                 });
         }
     }
