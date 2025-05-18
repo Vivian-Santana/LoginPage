@@ -2,11 +2,15 @@
 {
     public class UsuarioModelo
     {
-        public UsuarioModelo(string name)
+        public UsuarioModelo(string name, string SenhaHash)
         {
             Name = name;
             Id = Guid.NewGuid(); // *
+            this.SenhaHash = SenhaHash;
         }
+        public UsuarioModelo() 
+        { }
+
         public bool Status { get; set; } = true;
 
         //Guid gera ids únicos com uma gama maior de caracteres dificultando o risco de ter ids iguias
@@ -27,6 +31,7 @@
             Status = false;
         }
 
+        public string SenhaHash { get; set; }
     }
-    
+
 }

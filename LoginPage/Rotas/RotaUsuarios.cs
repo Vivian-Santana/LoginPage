@@ -1,7 +1,10 @@
 ﻿using LoginPage.Dados;
+using LoginPage.DTOs;
 using LoginPage.Modelo;
+using LoginPage.Utilitarios;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System;
 using System.Reflection.Metadata.Ecma335;
 
 namespace LoginPage.Rotas
@@ -13,20 +16,25 @@ namespace LoginPage.Rotas
             //map group
             var route = app.MapGroup(prefix: "usuario");
 
-            route.MapPost(pattern: "criar", async (UsuarioRequest req, LoginPageDbContext context) =>
+            route.MapPost(pattern: "criar", async (UsuarioRequest dto, LoginPageDbContext context) =>
             {
-                var usuario = new UsuarioModelo(req.name); // cria uma nova instância de usuário a partir da requisição
+                var senhaCriptografada = AuxiliarDeSenha.GerarHashDaSenha(dto.Senha);
+                var usuario = new UsuarioModelo(dto.Name, senhaCriptografada); // cria uma nova instância de usuário a partir da requisição
+
                 await context.AddAsync(usuario); // adiciona o usuário ao contexto (prepara para inserção no banco)
                 await context.SaveChangesAsync(); // salva (commita) as alterações no banco de dados
 
-                return Results.Created($"/usuarios/{usuario.Id}", usuario);
+                return Results.Created($"/usuarios/{usuario.Id}", new RespostaUsuario(usuario.Id, usuario.Name));
             });
 
             //pega lista de usuários
             route.MapGet(pattern:"pegar", async (LoginPageDbContext context) =>
             {
                 //inferencia de tipo   (tipo é List<UsuarioModelo>)
-                var usuarios = await context.Usuarios.ToListAsync(); 
+                var usuarios = await context.Usuarios
+                .Select(usuarios => new RespostaUsuario(usuarios.Id, usuarios.Name))
+                .ToListAsync();
+
                 return Results.Ok(usuarios);
             });
 
@@ -36,7 +44,7 @@ namespace LoginPage.Rotas
                 var usuario = await context.Usuarios.FindAsync(id);
 
                 return usuario is not null
-                    ? Results.Ok(usuario)
+                    ? Results.Ok(new RespostaUsuario(usuario.Id, usuario.Name))
                     : Results.NotFound();
             });
             
@@ -48,7 +56,7 @@ namespace LoginPage.Rotas
                     if (usuarioEncontrado == null)
                         return Results.NotFound();
 
-                    usuarioEncontrado.MudarNome(req.name);
+                    usuarioEncontrado.MudarNome(req.Name);
                     await context.SaveChangesAsync();
 
                     return Results.Ok($"Usuário com ID {id} foi alterado com sucesso!");
@@ -71,7 +79,7 @@ namespace LoginPage.Rotas
                 });
 
             // Hard delete - remoção permanente
-            route.MapDelete(pattern:"/usuarios/{id:guid}/deletar",
+            route.MapDelete(pattern:"{id:guid}/deletar",
                 async (Guid id, LoginPageDbContext context) =>
                 {
                     var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
