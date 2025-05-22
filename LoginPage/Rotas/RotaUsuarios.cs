@@ -1,4 +1,5 @@
-﻿using LoginPage.Dados;
+﻿using AutoMapper;
+using LoginPage.Dados;
 using LoginPage.DTOs;
 using LoginPage.Modelo;
 using LoginPage.Utilitarios;
@@ -16,36 +17,38 @@ namespace LoginPage.Rotas
             //map group
             var route = app.MapGroup(prefix: "usuario");
 
-            route.MapPost(pattern: "criar", async (UsuarioRequest dto, LoginPageDbContext context) =>
+            route.MapPost(pattern: "criar", async (UsuarioRequest request, LoginPageDbContext db, IMapper mapper) =>
             {
-                var senhaCriptografada = AuxiliarDeSenha.GerarHashDaSenha(dto.Senha);
-                var usuario = new UsuarioModelo(dto.Name, senhaCriptografada); // cria uma nova instância de usuário a partir da requisição
+                var senhaCriptografada = AuxiliarDeSenha.GerarHashDaSenha(request.Senha);
+                var usuario = new UsuarioModelo(request.Name, senhaCriptografada); // cria uma nova instância de usuário a partir da requisição
 
-                await context.AddAsync(usuario); // adiciona o usuário ao contexto (prepara para inserção no banco)
-                await context.SaveChangesAsync(); // salva (commita) as alterações no banco de dados
+                db.Usuarios.Add(usuario);
+                await db.SaveChangesAsync();
 
-                return Results.Created($"/usuarios/{usuario.Id}", new RespostaUsuario(usuario.Id, usuario.Name));
+                var resposta = mapper.Map<RespostaUsuario>(usuario);
+                return Results.Created($"/usuarios/{usuario.Id}", resposta);
+
             });
 
             //pega lista de usuários
-            route.MapGet(pattern:"pegar", async (LoginPageDbContext context) =>
+            route.MapGet(pattern:"pegar", async (LoginPageDbContext db, IMapper mapper) =>
             {
                 //inferencia de tipo   (tipo é List<UsuarioModelo>)
-                var usuarios = await context.Usuarios
-                .Select(usuarios => new RespostaUsuario(usuarios.Id, usuarios.Name))
-                .ToListAsync();
+                var usuarios = await db.Usuarios.ToListAsync();
+                var resposta = mapper.Map<List<RespostaUsuario>>(usuarios);
 
-                return Results.Ok(usuarios);
+                return Results.Ok(resposta);
             });
 
             //pega usuario pelo id
-            route.MapGet("/{id:guid}/pegarPorId", async (Guid id, LoginPageDbContext context) =>
+            route.MapGet("/{id:guid}/pegarPorId", async (Guid id, LoginPageDbContext db, IMapper mapper) =>
             {
-                var usuario = await context.Usuarios.FindAsync(id);
+                var usuario = await db.Usuarios.FindAsync(id);
+                if(usuario is null) return Results.NotFound();
+                
+                var resposta = mapper.Map<RespostaUsuario>(usuario);
+                return Results.Ok(resposta);
 
-                return usuario is not null
-                    ? Results.Ok(new RespostaUsuario(usuario.Id, usuario.Name))
-                    : Results.NotFound();
             });
             
             route.MapPut(pattern: "{id:guid}/alterar",
@@ -92,6 +95,19 @@ namespace LoginPage.Rotas
 
                     return Results.Ok($"Usuário com ID {id} foi removido permanentemente.");
                 });
+
+            app.MapPost("/login", async (UsuarioRequest request, LoginPageDbContext db) =>
+            {
+                var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Name == request.Name);
+
+                if (usuario is null || !AuxiliarDeSenha.VerificarSenha(request.Senha, usuario.SenhaHash))
+                    return Results.Problem(
+                        detail: "As credenciais fornecidas são inválidas.",
+                        statusCode: StatusCodes.Status401Unauthorized
+                    );
+
+                return Results.Ok(new { mensagem = "Login realizado com sucesso!" });
+            });
         }
     }
 }

@@ -1,4 +1,5 @@
 using LoginPage.Dados;
+using LoginPage.Mapeamento;
 using LoginPage.Rotas;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,6 +9,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddScoped <LoginPageDbContext> ();//injeção da conexão com o banco
+builder.Services.AddDbContext<LoginPageDbContext>(); //banco
+builder.Services.AddAutoMapper(typeof(ConfiguracaoDeMapeamento));
 
 var app = builder.Build();
 

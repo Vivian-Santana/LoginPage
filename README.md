@@ -11,3 +11,4 @@
 - EntityFrameworkCore
 - EntityFrameworkCore.Design
 - EntityFrameworkCore.SqlServer
+- AutoMapper

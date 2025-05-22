@@ -31,7 +31,7 @@
             Status = false;
         }
 
-        public string SenhaHash { get; set; }
+        public string SenhaHash { get; set; } = string.Empty;
     }
 
 }
