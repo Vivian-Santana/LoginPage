@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using Azure.Core;
 using LoginPage.Dados;
 using LoginPage.DTOs;
 using LoginPage.Modelo;
@@ -17,10 +18,14 @@ namespace LoginPage.Rotas
             //map group
             var route = app.MapGroup(prefix: "usuario");
 
-            route.MapPost(pattern: "criar", async (UsuarioRequest request, LoginPageDbContext db, IMapper mapper) =>
+            route.MapPost(pattern: "criar", async (UsuarioRequest req, LoginPageDbContext db, IMapper mapper) =>
             {
-                var senhaCriptografada = AuxiliarDeSenha.GerarHashDaSenha(request.Senha);
-                var usuario = new UsuarioModelo(request.Name, senhaCriptografada); // cria uma nova instância de usuário a partir da requisição
+                //validação da senha dentro das regras de criação de senha
+                if (!ValidadorDeSenha.SenhaValida(req.Senha, out var erros))
+                    return Results.BadRequest(new { Erros = erros }); // se não estiver dentro das regras de validação, retorna os erros
+
+                var senhaCriptografada = AuxiliarDeSenha.GerarHashDaSenha(req.Senha);
+                var usuario = new UsuarioModelo(req.Name, senhaCriptografada); // cria uma nova instância de usuário a partir da requisição
 
                 db.Usuarios.Add(usuario);
                 await db.SaveChangesAsync();
@@ -44,26 +49,59 @@ namespace LoginPage.Rotas
             route.MapGet("/{id:guid}/pegarPorId", async (Guid id, LoginPageDbContext db, IMapper mapper) =>
             {
                 var usuario = await db.Usuarios.FindAsync(id);
-                if(usuario is null) return Results.NotFound();
-                
+                if(usuario is null)
+                    return Results.Problem(
+                        detail: "Usuário não encontrado.",
+                        statusCode: StatusCodes.Status404NotFound
+                    );
+
                 var resposta = mapper.Map<RespostaUsuario>(usuario);
                 return Results.Ok(resposta);
 
             });
-            
-            route.MapPut(pattern: "{id:guid}/alterar",
-                async (Guid id, UsuarioRequest req, LoginPageDbContext context) =>
+
+            route.MapPut("{id:guid}/alterarSenha",
+            async (Guid id, AlterarSenhaRequest req, LoginPageDbContext context) =>
+            {
+                var usuario = await context.Usuarios
+                    .FirstOrDefaultAsync(u => u.Id == id);
+
+                if (usuario == null || usuario.Status == false)
                 {
-                    var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
+                    return Results.Problem(
+                        detail: "Usuário não encontrado.",
+                        statusCode: StatusCodes.Status404NotFound
+                    );
+                }
 
-                    if (usuarioEncontrado == null)
-                        return Results.NotFound();
+                // Verifica senha atual
+                var senhaCorreta = AuxiliarDeSenha.VerificarSenha(
+                    req.SenhaAtual, usuario.SenhaHash
+                );
 
-                    usuarioEncontrado.MudarNome(req.Name);
-                    await context.SaveChangesAsync();
+                if (!senhaCorreta)
+                {
+                    return Results.BadRequest(new{Mensagem = "Senha incorreta!"});
+                }
 
-                    return Results.Ok($"Usuário com ID {id} foi alterado com sucesso!");
-                });
+                // Valida nova senha
+                if (!ValidadorDeSenha.SenhaValida(req.NovaSenha, out var erros))
+                {
+                    return Results.BadRequest(new
+                    {
+                        Mensagem = "Nova senha não atende aos requisitos de segurança!",
+                        Erros = erros
+                    });
+                }
+
+                // Atualizar dados
+                usuario.MudarSenha(AuxiliarDeSenha.GerarHashDaSenha(req.NovaSenha));
+
+                await context.SaveChangesAsync();
+
+                return Results.Ok(new{Mensagem = "Senha alterada com sucesso!"});
+            });
+
 
             // soft delete marca como inativo na coluna status
             route.MapDelete(pattern: "{id:guid}/desativar",
@@ -72,10 +110,13 @@ namespace LoginPage.Rotas
                     var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
                     
                     if (usuarioEncontrado == null)
-                        return Results.NotFound();
+                        return Results.Problem(
+                        detail: "Usuário não encontrado.",
+                        statusCode: StatusCodes.Status404NotFound
+                    );
 
                     //seta como inativo
-                     usuarioEncontrado.SetInativo();
+                    usuarioEncontrado.SetInativo();
                      await context.SaveChangesAsync();
 
                      return Results.Ok($"Usuário com ID {id} foi desativado.");
@@ -88,7 +129,10 @@ namespace LoginPage.Rotas
                     var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
 
                     if (usuarioEncontrado == null)
-                        return Results.NotFound();
+                        return Results.Problem(
+                        detail: "Usuário não encontrado.",
+                        statusCode: StatusCodes.Status404NotFound
+                    );
 
                     context.Usuarios.Remove(usuarioEncontrado);
                     await context.SaveChangesAsync();
@@ -102,9 +146,15 @@ namespace LoginPage.Rotas
 
                 if (usuario is null || !AuxiliarDeSenha.VerificarSenha(request.Senha, usuario.SenhaHash))
                     return Results.Problem(
-                        detail: "As credenciais fornecidas são inválidas.",
+                        detail: "Usuário ou senha inválidos!",
                         statusCode: StatusCodes.Status401Unauthorized
                     );
+
+                if (usuario.Status == false)
+                    return Results.Problem(
+                    detail: "Usuário não encontrado.",
+                    statusCode: StatusCodes.Status404NotFound
+                );
 
                 return Results.Ok(new { mensagem = "Login realizado com sucesso!" });
             });
