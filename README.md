@@ -12,3 +12,4 @@
 - EntityFrameworkCore.Design
 - EntityFrameworkCore.SqlServer
 - AutoMapper
+- AspNetCore.Authentication.JwtBearer

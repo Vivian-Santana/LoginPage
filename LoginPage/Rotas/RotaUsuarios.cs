@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Reflection.Metadata.Ecma335;
+using System.Security.Claims;
 
 namespace LoginPage.Rotas
 {
@@ -35,9 +36,9 @@ namespace LoginPage.Rotas
             });
 
             //Login autenticação
-            route.MapPost(pattern: "/login", async (UsuarioRequest request, LoginPageDbContext db) =>
+            route.MapPost(pattern: "/login", async (UsuarioRequest request, LoginPageDbContext db, IConfiguration config) =>
             {
-                var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Name == request.Name);
+                var usuario = await db.Usuarios.FirstOrDefaultAsync(u => u.Name == request.Name && u.Status);
 
                 if (usuario is null || !AuxiliarDeSenha.VerificarSenha(request.Senha, usuario.SenhaHash))
                     return Results.Problem(
@@ -51,7 +52,16 @@ namespace LoginPage.Rotas
                     statusCode: StatusCodes.Status404NotFound
                 );
 
-                return Results.Ok(new { mensagem = "Login realizado com sucesso!" });
+                //Gera o token JWT
+                var token = TokenService.GerarToken(usuario, config);
+
+                return Results.Ok(new
+                {
+                    mensagem = "Login realizado com sucesso!",
+                    token,
+                    usuario = new { usuario.Id, usuario.Name }
+                });
+
             });
 
             //pega lista de usuários
@@ -63,28 +73,55 @@ namespace LoginPage.Rotas
 
                 return Results.Ok(resposta);
             });
+            //implementar acesso só a um usuario adm
 
-            //pega usuario pelo id
-            route.MapGet("/{id:guid}/pegarPorId", async (Guid id, LoginPageDbContext db, IMapper mapper) =>
+            route.MapGet("/{id:guid}/pegarPorId", 
+                async (Guid id, LoginPageDbContext db, IMapper mapper, ClaimsPrincipal user) =>
             {
+                // Dados do token
+                var usuarioIdDoToken = user.ObterUsuarioId();
+                var nomeDoUsuarioToken = user.Identity?.Name;
+                Console.WriteLine($"Usuário autenticado: {nomeDoUsuarioToken}, ID: {usuarioIdDoToken}");
+
+                if (usuarioIdDoToken != id)
+                {
+                    return Results.Problem(
+                        detail: "Usuário não autorizado.",
+                        statusCode: StatusCodes.Status401Unauthorized // Acesso negado se o ID do token não bater com o ID da URL
+                    );
+                }
+
                 var usuario = await db.Usuarios.FindAsync(id);
+                
                 if(usuario is null)
+                { 
                     return Results.Problem(
                         detail: "Usuário não encontrado.",
                         statusCode: StatusCodes.Status404NotFound
                     );
+                }
 
                 var resposta = mapper.Map<RespostaUsuario>(usuario);
                 return Results.Ok(resposta);
 
-            });
+            })
+            .RequireAuthorization(); //exige um token JWT válido
 
-            //atualizar senha
             route.MapPut("{id:guid}/alterarSenha",
-            async (Guid id, AlterarSenhaRequest req, LoginPageDbContext context) =>
+            async (Guid id, AlterarSenhaRequest req, LoginPageDbContext db, ClaimsPrincipal user) =>
             {
-                var usuario = await context.Usuarios
-                    .FirstOrDefaultAsync(u => u.Id == id);
+                var usuarioIdDoToken = user.ObterUsuarioId();
+
+                if (usuarioIdDoToken != id)
+                {
+                    return Results.Problem(
+                        detail: "Usuário não autorizado.",
+                        statusCode: StatusCodes.Status401Unauthorized // Acesso negado se o ID do token não bater com o ID da URL
+                    );
+                }
+
+                var usuario = await db.Usuarios.
+                    FirstOrDefaultAsync(u => u.Id == id);
 
                 if (usuario == null || usuario.Status == false)
                 {
@@ -117,16 +154,27 @@ namespace LoginPage.Rotas
                 // Atualizar dados
                 usuario.MudarSenha(AuxiliarDeSenha.GerarHashDaSenha(req.NovaSenha));
 
-                await context.SaveChangesAsync();
+                await db.SaveChangesAsync();
 
                 return Results.Ok(new{Mensagem = "Senha alterada com sucesso!"});
-            });
+            })
+            .RequireAuthorization();
 
             //reativa usuario
             route.MapPut(pattern: "{id:guid}/reativar",
-                async (Guid id, LoginPageDbContext context) =>
+                async (Guid id, LoginPageDbContext db, ClaimsPrincipal user) =>
                 {
-                    var usuarioEncontrado = await context.Usuarios
+                    var usuarioIdDoToken = user.ObterUsuarioId();
+
+                    if (usuarioIdDoToken != id)
+                    {
+                        return Results.Problem(
+                            detail: "Usuário não autorizado.",
+                            statusCode: StatusCodes.Status401Unauthorized
+                        );
+                    }
+
+                    var usuarioEncontrado = await db.Usuarios
                         .FirstOrDefaultAsync(usuario => usuario.Id == id);
 
                     if (usuarioEncontrado == null)
@@ -143,16 +191,26 @@ namespace LoginPage.Rotas
                     }
 
                     usuarioEncontrado.SetAtivo();
-                    await context.SaveChangesAsync();
+                    await db.SaveChangesAsync();
 
                     return Results.Ok($"Usuário com ID {id} foi reativado.");
-                });
+                })
+                .RequireAuthorization();
 
             // soft delete marca como inativo na coluna status
             route.MapDelete(pattern: "{id:guid}/desativar",
-                async (Guid id, LoginPageDbContext context) =>
+                async (Guid id, LoginPageDbContext db, ClaimsPrincipal user) =>
                 {
-                    var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
+                    var usuarioIdDoToken = user.ObterUsuarioId();
+
+                    if (usuarioIdDoToken != id)
+                    {
+                        return Results.Problem(
+                            detail: "Usuário não autorizado.",
+                            statusCode: StatusCodes.Status401Unauthorized
+                        );
+                    }
+                    var usuarioEncontrado = await db.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
                     
                     if (usuarioEncontrado == null)
                         return Results.Problem(
@@ -162,16 +220,26 @@ namespace LoginPage.Rotas
 
                     //seta como inativo
                     usuarioEncontrado.SetInativo();
-                     await context.SaveChangesAsync();
+                     await db.SaveChangesAsync();
 
                      return Results.Ok($"Usuário com ID {id} foi desativado.");
-                });
+                })
+                .RequireAuthorization();
 
             // Hard delete - remoção permanente
             route.MapDelete(pattern:"{id:guid}/deletar",
-                async (Guid id, LoginPageDbContext context) =>
+                async (Guid id, LoginPageDbContext db, ClaimsPrincipal user) =>
                 {
-                    var usuarioEncontrado = await context.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
+                    var usuarioIdDoToken = user.ObterUsuarioId();
+
+                    if (usuarioIdDoToken != id)
+                    {
+                        return Results.Problem(
+                            detail: "Usuário não autorizado.",
+                            statusCode: StatusCodes.Status401Unauthorized // Acesso negado se o ID do token não bater com o ID da URL
+                        );
+                    }
+                    var usuarioEncontrado = await db.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
 
                     if (usuarioEncontrado == null)
                         return Results.Problem(
@@ -179,11 +247,12 @@ namespace LoginPage.Rotas
                         statusCode: StatusCodes.Status404NotFound
                     );
 
-                    context.Usuarios.Remove(usuarioEncontrado);
-                    await context.SaveChangesAsync();
+                    db.Usuarios.Remove(usuarioEncontrado);
+                    await db.SaveChangesAsync();
 
                     return Results.Ok($"Usuário com ID {id} foi removido permanentemente.");
-                });
+                })
+                .RequireAuthorization();
 
         }
     }

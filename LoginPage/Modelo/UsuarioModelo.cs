@@ -35,6 +35,7 @@
         {
             Status = true;
         }
+
         public string SenhaHash { get; set; } = string.Empty;
 
         public void MudarSenha(string novaSenhaHash)
