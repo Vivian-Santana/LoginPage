@@ -42,6 +42,7 @@
         {
             SenhaHash = novaSenhaHash;
         }
+        public string TipoUsuario { get; set; } = "Usuario"; // por padrão,  implementar rota para mudar o tipo
     }
 
 }

@@ -1,14 +1,11 @@
 ﻿using AutoMapper;
-using Azure.Core;
 using LoginPage.Dados;
 using LoginPage.DTOs;
 using LoginPage.Modelo;
 using LoginPage.Utilitarios;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Reflection.Metadata.Ecma335;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 
 namespace LoginPage.Rotas
 {
@@ -64,8 +61,10 @@ namespace LoginPage.Rotas
 
             });
 
-            //pega lista de usuários
-            route.MapGet(pattern:"pegar", async (LoginPageDbContext db, IMapper mapper) =>
+            //pega lista de usuários (Apenas Admin)
+            route.MapGet(pattern:"pegar",
+                [Authorize(Roles = "Admin")]
+                async (LoginPageDbContext db, IMapper mapper) =>
             {
                 //inferencia de tipo   (tipo é List<UsuarioModelo>)
                 var usuarios = await db.Usuarios.ToListAsync();
@@ -73,17 +72,18 @@ namespace LoginPage.Rotas
 
                 return Results.Ok(resposta);
             });
-            //implementar acesso só a um usuario adm
 
-            route.MapGet("/{id:guid}/pegarPorId", 
+            route.MapGet("/{id:guid}/pegarPorId",
+                [Authorize]
                 async (Guid id, LoginPageDbContext db, IMapper mapper, ClaimsPrincipal user) =>
             {
                 // Dados do token
                 var usuarioIdDoToken = user.ObterUsuarioId();
                 var nomeDoUsuarioToken = user.Identity?.Name;
+                var isAdmin = user.IsInRole("Admin");
                 Console.WriteLine($"Usuário autenticado: {nomeDoUsuarioToken}, ID: {usuarioIdDoToken}");
 
-                if (usuarioIdDoToken != id)
+                if (!isAdmin && usuarioIdDoToken != id)
                 {
                     return Results.Problem(
                         detail: "Usuário não autorizado.",
@@ -107,6 +107,7 @@ namespace LoginPage.Rotas
             })
             .RequireAuthorization(); //exige um token JWT válido
 
+            // apenas o usuario pode alterar a propria senha
             route.MapPut("{id:guid}/alterarSenha",
             async (Guid id, AlterarSenhaRequest req, LoginPageDbContext db, ClaimsPrincipal user) =>
             {
@@ -116,7 +117,7 @@ namespace LoginPage.Rotas
                 {
                     return Results.Problem(
                         detail: "Usuário não autorizado.",
-                        statusCode: StatusCodes.Status401Unauthorized // Acesso negado se o ID do token não bater com o ID da URL
+                        statusCode: StatusCodes.Status401Unauthorized
                     );
                 }
 
@@ -162,11 +163,13 @@ namespace LoginPage.Rotas
 
             //reativa usuario
             route.MapPut(pattern: "{id:guid}/reativar",
+                [Authorize]
                 async (Guid id, LoginPageDbContext db, ClaimsPrincipal user) =>
                 {
                     var usuarioIdDoToken = user.ObterUsuarioId();
+                    var isAdmin = user.IsInRole("Admin");
 
-                    if (usuarioIdDoToken != id)
+                    if (!isAdmin && usuarioIdDoToken != id)
                     {
                         return Results.Problem(
                             detail: "Usuário não autorizado.",
@@ -199,11 +202,13 @@ namespace LoginPage.Rotas
 
             // soft delete marca como inativo na coluna status
             route.MapDelete(pattern: "{id:guid}/desativar",
+                [Authorize]
                 async (Guid id, LoginPageDbContext db, ClaimsPrincipal user) =>
                 {
                     var usuarioIdDoToken = user.ObterUsuarioId();
+                    var isAdmin = user.IsInRole("Admin");
 
-                    if (usuarioIdDoToken != id)
+                    if (!isAdmin && usuarioIdDoToken != id)
                     {
                         return Results.Problem(
                             detail: "Usuário não autorizado.",
@@ -228,15 +233,17 @@ namespace LoginPage.Rotas
 
             // Hard delete - remoção permanente
             route.MapDelete(pattern:"{id:guid}/deletar",
+                [Authorize]
                 async (Guid id, LoginPageDbContext db, ClaimsPrincipal user) =>
                 {
                     var usuarioIdDoToken = user.ObterUsuarioId();
+                    var isAdmin = user.IsInRole("Admin");
 
-                    if (usuarioIdDoToken != id)
+                    if (!isAdmin && usuarioIdDoToken != id)
                     {
                         return Results.Problem(
                             detail: "Usuário não autorizado.",
-                            statusCode: StatusCodes.Status401Unauthorized // Acesso negado se o ID do token não bater com o ID da URL
+                            statusCode: StatusCodes.Status401Unauthorized
                         );
                     }
                     var usuarioEncontrado = await db.Usuarios.FirstOrDefaultAsync(usuario => usuario.Id == id);
